@@ -1,0 +1,6 @@
+services:
+  assurance:
+    build: .
+    ports:
+      - "8080:8080"
+      - "5140:5140/udp"

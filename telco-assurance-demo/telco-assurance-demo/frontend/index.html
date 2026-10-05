@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Assurance Console: AI fault management demo</title>
+<style>
+:root{--bg:#eef1ee;--pn:#fff;--tx:#17211c;--mu:#5d6b63;--ln:#d3dad5;--ac:#0d6b57;--cr:#c62f2f;--mj:#d9742b;--mn:#b8960f;--in:#3a6ea5;--ok:#2e8b4f;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1613;--pn:#18211d;--tx:#e6eee9;--mu:#93a39a;--ln:#2c3a33;--ac:#3fc2a1;--cr:#ef6a6a;--mj:#f0924f;--mn:#d9bb3e;--in:#6fa5dc;--ok:#5cc983}}
+:root[data-theme="dark"]{--bg:#0f1613;--pn:#18211d;--tx:#e6eee9;--mu:#93a39a;--ln:#2c3a33;--ac:#3fc2a1;--cr:#ef6a6a;--mj:#f0924f;--mn:#d9bb3e;--in:#6fa5dc;--ok:#5cc983}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 "Segoe UI",system-ui,sans-serif}
+header{padding:12px 14px 6px}
+h1{font:600 18px/1.2 Georgia,"Times New Roman",serif;margin:0}
+.sub{color:var(--mu);font-size:12px;margin-top:2px}
+.bar{display:flex;gap:6px;flex-wrap:wrap;padding:6px 14px}
+button{font:inherit;border:1px solid var(--ln);background:var(--pn);color:var(--tx);border-radius:6px;padding:6px 10px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac)}
+button.on{border-color:var(--ac);color:var(--ac);font-weight:600}
+.tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--ln);overflow-x:auto}
+.tabs button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:8px 12px}
+.tabs button.on{border-bottom-color:var(--ac)}
+main{padding:12px 14px 40px;max-width:980px;margin:auto}
+.card{background:var(--pn);border:1px solid var(--ln);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px}
+.k b{display:block;font:600 22px Georgia,serif}.k span{color:var(--mu);font-size:12px}
+.sv{display:inline-block;min-width:62px;text-align:center;font-size:11px;font-weight:700;color:#fff;border-radius:4px;padding:1px 6px}
+.Critical{background:var(--cr)}.Major{background:var(--mj)}.Minor{background:var(--mn)}.Info{background:var(--in)}.Cleared{background:var(--ok)}
+.row{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--ln)}
+.row:last-child{border:0}.row .m{flex:1;min-width:0}.mu{color:var(--mu);font-size:12px}
+.tbl{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;padding:5px 8px;border-bottom:1px solid var(--ln);vertical-align:top}
+.warn{border-color:var(--mj);background:color-mix(in srgb,var(--mj) 12%,var(--pn))}
+.step{padding:2px 0}.step.d{color:var(--ok)}.step.r{font-weight:600;color:var(--ac)}
+h3{font:600 15px Georgia,serif;margin:0 0 6px}
+.risk{height:8px;border-radius:4px;background:var(--ln);overflow:hidden}.risk i{display:block;height:100%;background:var(--mj)}
+</style></head><body>
+<header><h1>Assurance Console</h1><div class="sub">AI fault and alarm management prototype across core, optical transport, 5G RAN and FTTH. Netcool-style events in, correlated incidents and remediation out</div></header>
+<div class="bar" id="ctl"></div>
+<nav class="tabs" id="tabs"></nav>
+<main id="main"></main>
+<script>
+// ---------- Topology, services, enrichment ----------
+const N={
+P1:{site:'Dallas',v:'Juniper MX960',role:'Core P router',ip:'10.0.0.1',past:'7 incidents; last: fiber cut, 41 min'},
+P2:{site:'Chicago',v:'Juniper MX960',role:'Core P router',ip:'10.0.0.2',past:'4 incidents; last: CPU spike, 18 min'},
+DWDM1:{site:'Dallas to Chicago span',v:'Ciena 6500',role:'DWDM optical transport',ip:'10.0.1.1',past:'3 incidents; last: amplifier fault, 52 min'},
+RR1:{site:'Kansas City',v:'Juniper MX204',role:'BGP route reflector',ip:'10.0.0.9',past:'1 incident'},
+PE1:{site:'Austin',v:'Cisco ASR 9000',role:'Provider edge',ip:'10.0.0.11',past:'2 incidents'},
+PE2:{site:'Denver',v:'Cisco ASR 9000',role:'Provider edge',ip:'10.0.0.12',past:'3 incidents'},
+PE3:{site:'Atlanta',v:'Nokia 7750 SR',role:'Provider edge',ip:'10.0.0.13',past:'1 incident'},
+AGG1:{site:'Austin',v:'Cisco NCS 540',role:'Aggregation router',ip:'10.0.2.1',past:'2 incidents'},
+OLT1:{site:'Austin',v:'Nokia ISAM FX',role:'FTTH OLT',ip:'10.0.2.10',past:'5 incidents; last: feeder fiber cut, 3 h'},
+CSR1:{site:'Denver',v:'Cisco NCS 520',role:'Cell site router',ip:'10.0.3.4',past:'6 incidents; last: rectifier fault, 2 h'},
+GNB1:{site:'Denver, cell 4417',v:'Ericsson AIR 6449',role:'5G gNodeB',ip:'10.0.3.40',past:'2 incidents'},
+UPF1:{site:'Chicago',v:'Virtual UPF on x86',role:'5G user plane function',ip:'10.0.4.1',past:'1 incident'}};
+const E=[['PE1','P1'],['P1','DWDM1'],['DWDM1','P2'],['P2','PE2'],['P2','PE3'],['P1','RR1'],['P2','RR1'],['AGG1','PE1'],['OLT1','AGG1'],['CSR1','PE2'],['GNB1','CSR1'],['UPF1','P2']];
+const SV={'VPN-ACME':{p:['PE1','P1','DWDM1','P2','PE2'],c:1200},'VPN-BANK':{p:['PE1','P1','DWDM1','P2','PE3'],c:3400},'VPN-MEDIA':{p:['PE3','P2','PE2'],c:800},'5G-SLICE-URLLC':{p:['GNB1','CSR1','PE2','P2','UPF1'],c:18500},'FTTH-AUSTIN':{p:['OLT1','AGG1','PE1','P1','DWDM1','P2'],c:9200}};
+const adj={};E.forEach(([a,b])=>{(adj[a]=adj[a]||[]).push(b);(adj[b]=adj[b]||[]).push(a)});
+function dist(a,b){if(a==b)return 0;let q=[[a,0]],s={[a]:1};while(q.length){let[n,d]=q.shift();for(const m of adj[n]){if(m==b)return d+1;if(!s[m]){s[m]=1;q.push([m,d+1])}}}return 99}
+// type: [causal rank, severity, text, noise]
+const R={LOS:[10,'Critical','Loss of signal on optical port'],LINK_DOWN:[8,'Critical','Interface link down'],CPU_HIGH:[7,'Major','Control-plane CPU above 90%'],OPTICAL_RX_LOW:[6,'Minor','Optical Rx power below threshold'],LDP_DOWN:[5,'Major','LDP session lost'],OSPF_FLAP:[4,'Minor','OSPF neighbor flapping'],BGP_DOWN:[4,'Major','BGP neighbor down'],SERVICE_DEGRADED:[1,'Critical','Customer VPN degraded'],POWER_LOSS:[9,'Critical','Site power loss, both rectifiers down'],PON_LOS:[9,'Critical','PON port loss of signal'],BFD_DOWN:[3,'Major','BFD session down'],CELL_OUTAGE:[1,'Critical','gNodeB cell outage'],ONT_OFFLINE:[1,'Major','ONTs offline on PON port'],NTP_DRIFT:[0,'Info','NTP offset warning',1],AUTH_FAIL:[0,'Info','SSH login failure',1],INTF_FLAP_MINOR:[0,'Minor','Access port flap',1]};
+const PB={LOS:{risk:'low',steps:['Verify adjacency loss over NETCONF','Trigger MPLS-TE fast reroute to backup LSP','Validate VPN reachability probes','Open fiber dispatch ticket in ITSM']},
+CPU_HIGH:{risk:'medium',steps:['Snapshot process table','Apply control-plane policing profile','Confirm CPU back under 60%']},
+OPTICAL_RX_LOW:{risk:'low',steps:['Shift LSPs off the degrading link','Schedule connector cleaning','Verify Rx power after shift']},
+POWER_LOSS:{risk:'medium',steps:['Confirm power alarm and battery runtime','Reroute backhaul through microwave backup','Dispatch field crew with spare rectifier','Verify cell back on air']},
+PON_LOS:{risk:'low',steps:['Run OTDR test on the PON port','Locate the feeder fault from the trace','Open fiber dispatch ticket in ITSM','Verify ONTs recover']},
+_:{risk:'low',steps:['Collect device diagnostics','Create ticket with enrichment attached']}};
+// ---------- State ----------
+let now=0,alarms=[],incs=[],raw=0,q=[],hist=[],cur=0,m=2,v=1,anom=[],auto=true,tab='alarms',open={},risk={},ids=0,iid=100,dark=null;
+const SRC={SNMP:'SNMP trap',SYSLOG:'Syslog',STREAM:'Kafka stream'};
+// ---------- Engine ----------
+function ingest(src,type,proto){raw++;cur++;const k=src+type;
+ const ex=alarms.find(a=>a.k==k&&a.st!='Cleared');
+ if(ex){ex.n++;ex.last=now;if(type=='OPTICAL_RX_LOW')predict(ex);return}
+ const r=R[type],a={id:++ids,k,src,type,sev:r[1],text:r[2],proto,t:now,last:now,n:1,noise:!!r[3],inc:null,st:'Open'};
+ alarms.unshift(a);correlate(a)}
+function correlate(a){if(a.noise){const i=incs.find(i=>i.st!='Resolved'&&now-i.t0<45&&i.al.some(x=>dist(x.src,a.src)<=1));if(i)attach(i,a);return}
+ let i=incs.find(i=>i.st!='Resolved'&&now-i.t0<45&&i.al.some(x=>!x.noise&&dist(x.src,a.src)<=2));
+ if(!i){i={id:++iid,tkt:'TKT-'+(5000+iid),t0:now,tFault:a.t,al:[],st:'Open',rem:null};incs.unshift(i);i.mttd=0}
+ attach(i,a);if(a.type=='OPTICAL_RX_LOW')predict(a)}
+function attach(i,a){a.inc=i.id;i.al.push(a);const nn=i.al.filter(x=>!x.noise);
+ nn.sort((x,y)=>R[y.type][0]-R[x.type][0]);i.root=nn[0]||i.al[0];
+ i.sev=['Critical','Major','Minor','Info'].find(s=>i.al.some(x=>x.sev==s));
+ i.imp=Object.keys(SV).filter(s=>SV[s].p.includes(i.root.src));i.cust=i.imp.reduce((t,s)=>t+SV[s].c,0);
+ const g=nn.length>1?R[nn[0].type][0]-R[nn[1].type][0]:0;i.conf=Math.min(.98,.55+.06*nn.length+.04*g);
+ if(i.root.type!='SERVICE_DEGRADED'){if(i.rem&&i.rem.st=='Proposed'&&i.rem.rt!=i.root.type)i.rem=null;if(!i.rem)planRem(i);else tryAuto(i)}}
+function predict(a){const p=1/(1+Math.exp(-.5*(a.n-6)));risk[a.src]={p,n:a.n};
+ const i=incs.find(i=>i.id==a.inc);if(i){i.pred=p;if(p>.7&&i.rem&&i.rem.st=='Proposed'&&auto)startRem(i,true)}}
+function planRem(i){const b=PB[i.root.type]||PB._;i.rem={risk:b.risk,steps:b.steps,k:0,st:'Proposed',rt:i.root.type};tryAuto(i)}
+function tryAuto(i){if(auto&&i.rem&&i.rem.st=='Proposed'&&i.rem.risk=='low'&&i.root.type!='OPTICAL_RX_LOW'&&i.conf>=.8)startRem(i,true)}
+function startRem(i,a){if(i.rem.st!='Proposed'&&i.rem.st!='Approval')return;i.rem.st='Running';i.rem.auto=a;i.rem.next=now+3;i.st='Remediating'}
+function schedule(d,f){q.push({d:now+d,f})}
+// ---------- Scenarios ----------
+function run(l){l.forEach(([n,t,p,d])=>schedule(d,()=>ingest(n,t,p)))}
+function fiberCut(){run([['DWDM1','LOS','SNMP',0],['P1','LINK_DOWN','SNMP',1],['P2','LINK_DOWN','SNMP',1],['RR1','BGP_DOWN','STREAM',2],['P1','LDP_DOWN','SYSLOG',2],['P2','LDP_DOWN','SYSLOG',2],['PE1','BGP_DOWN','STREAM',3],['PE2','BGP_DOWN','STREAM',3],['PE3','BGP_DOWN','STREAM',4],['PE1','SERVICE_DEGRADED','STREAM',4],['DWDM1','LOS','SNMP',5],['P1','LINK_DOWN','SNMP',6]])}
+function cellSite(){run([['CSR1','POWER_LOSS','SNMP',0],['CSR1','BFD_DOWN','SYSLOG',1],['PE2','BFD_DOWN','SYSLOG',1],['GNB1','CELL_OUTAGE','STREAM',2],['GNB1','SERVICE_DEGRADED','STREAM',3],['GNB1','CELL_OUTAGE','STREAM',4]])}
+function pon(){run([['OLT1','PON_LOS','SNMP',0],['OLT1','ONT_OFFLINE','STREAM',1],['AGG1','BFD_DOWN','SYSLOG',2],['OLT1','SERVICE_DEGRADED','STREAM',3],['OLT1','ONT_OFFLINE','STREAM',4]])}
+function cpu(){[['P2','CPU_HIGH','SNMP',0],['P2','OSPF_FLAP','SYSLOG',1],['PE2','OSPF_FLAP','SYSLOG',2],['PE3','OSPF_FLAP','SYSLOG',2],['P2','OSPF_FLAP','SYSLOG',3]].forEach(([n,t,p,d])=>schedule(d,()=>ingest(n,t,p)))}
+function optical(){for(let k=0;k<10;k++)schedule(k*1.5,()=>ingest('DWDM1','OPTICAL_RX_LOW','SNMP'))}
+function storm(){const ns=Object.keys(N),ts=['NTP_DRIFT','AUTH_FAIL','INTF_FLAP_MINOR'];for(let k=0;k<60;k++)schedule(k/6,()=>ingest(ns[k%ns.length],ts[k%3],'SYSLOG'))}
+// ---------- Tick ----------
+setInterval(()=>{if(API)return;now++;
+ if(Math.random()<.35){const ns=Object.keys(N),ts=['NTP_DRIFT','AUTH_FAIL','INTF_FLAP_MINOR'];ingest(ns[Math.random()*ns.length|0],ts[Math.random()*3|0],'SYSLOG')}
+ q.filter(x=>x.d<=now).forEach(x=>x.f());q=q.filter(x=>x.d>now);
+ incs.forEach(i=>{if(i.rem&&i.rem.st=='Running'&&now>=i.rem.next){i.rem.k++;i.rem.next=now+3;
+  if(i.rem.k>=i.rem.steps.length){i.rem.st='Done';i.st='Resolved';i.t1=now;i.al.forEach(a=>a.st='Cleared')}}});
+ const z=(cur-m)/Math.sqrt(v+1);hist.push({c:cur,z});if(z>3&&cur>5)anom.unshift({t:now,c:cur,z});
+ v=.9*v+.1*(cur-m)**2;m=.9*m+.1*cur;cur=0;if(hist.length>40)hist.shift();render()},1000);
+// ---------- UI ----------
+const $=s=>document.querySelector(s);
+const sv=s=>`<span class="sv ${s}">${s}</span>`;
+function mean(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:0}
+function fm(s){return s<90?Math.round(s)+' s':(s/60).toFixed(1)+' min'}
+function ctl(){$('#ctl').innerHTML=`<button class="p" onclick="fiberCut()">Cut fiber Dallas-Chicago</button><button onclick="cellSite()">Cell site power loss</button><button onclick="pon()">FTTH feeder cut</button><button onclick="cpu()">CPU spike on P2</button><button onclick="optical()">Optical degradation</button><button onclick="storm()">Noise storm</button><button class="${auto?'on':''}" onclick="setAuto(!auto)">Auto-remediate: ${auto?'on':'off'}</button><button onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme=='dark'?'light':'dark'">Theme</button>`;
+ $('#tabs').innerHTML=[['alarms','Live alarms'],['inc','Incidents'],['kpi','KPIs and trends'],['mig','Migration']].map(([k,l])=>`<button class="${tab==k?'on':''}" onclick="tab='${k}';ctl();render()">${l}</button>`).join('')}
+function spark(){const mx=Math.max(8,...hist.map(h=>h.c));const w=10;return `<svg viewBox="0 0 ${40*w} 70" style="width:100%;height:80px">${hist.map((h,i)=>`<rect x="${i*w+1}" width="${w-2}" y="${68-h.c/mx*64}" height="${h.c/mx*64}" fill="${h.z>3&&h.c>5?'var(--cr)':'var(--ac)'}"/>`).join('')}</svg>`}
+const XY={OLT1:[40,30],AGG1:[40,90],PE1:[40,150],P1:[110,150],DWDM1:[180,150],P2:[250,150],PE2:[320,150],CSR1:[320,90],GNB1:[320,30],PE3:[320,220],UPF1:[250,220],RR1:[180,220]};
+function st(n){const a=alarms.filter(x=>x.src==n&&x.st!='Cleared'&&!x.noise);return['Critical','Major','Minor'].find(z=>a.some(x=>x.sev==z))||'ok'}
+function topo(){const col={Critical:'var(--cr)',Major:'var(--mj)',Minor:'var(--mn)',ok:'var(--ok)'};
+ const bad=n=>st(n)=='Critical'||st(n)=='Major';
+ return `<svg viewBox="0 0 360 250" style="width:100%;max-height:270px">${E.map(([a,b])=>`<line x1="${XY[a][0]}" y1="${XY[a][1]}" x2="${XY[b][0]}" y2="${XY[b][1]}" stroke="${bad(a)&&bad(b)?'var(--cr)':'var(--ln)'}" stroke-width="${bad(a)&&bad(b)?4:2}"/>`).join('')}${Object.keys(XY).map(n=>`<rect x="${XY[n][0]-24}" y="${XY[n][1]-11}" width="48" height="22" rx="5" fill="${col[st(n)]}"/><text x="${XY[n][0]}" y="${XY[n][1]+4}" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">${n}</text>`).join('')}</svg><div class="mu">Access (OLT, aggregation) on the left, IP/MPLS core and DWDM transport in the middle, 5G RAN and core on the right. Device colour shows its worst active alarm.</div>`}
+const SEVN={Critical:5,Major:4,Minor:3,Info:2};let vw='all';
+function vAlarms(){const act=alarms.filter(a=>a.st!='Cleared');
+ const f={all:()=>1,cm:a=>SEVN[a.sev]>=4,unc:a=>!a.inc,cor:a=>a.inc}[vw];const rows=act.filter(f);
+ const last=anom[0]&&now-anom[0].t<20?`<div class="card warn"><b>Anomaly detected:</b> ${anom[0].c} events in one second against a learned baseline of ${m.toFixed(1)} (z-score ${anom[0].z.toFixed(1)}).</div>`:'';
+ const pr=Object.entries(risk).filter(([s,r])=>r.p>.4&&incs.some(i=>i.st!='Resolved'&&i.al.some(a=>a.src==s&&a.type=='OPTICAL_RX_LOW'))).map(([s,r])=>`<div class="card warn"><b>Predicted fault on ${s}:</b> optical degradation is trending toward link loss. Risk ${(r.p*100|0)}%<div class="risk"><i style="width:${r.p*100}%"></i></div></div>`).join('');
+ const vb=[['all','All events'],['cm','Critical and major'],['unc','Uncorrelated'],['cor','In an incident']].map(([k,l])=>`<button class="${vw==k?'on':''}" onclick="vw='${k}';render()">${l}</button>`).join(' ');
+ return last+pr+`<div class="card"><h3>Network topology</h3>${topo()}</div><div class="card"><h3>Events per second (anomaly flagged red)</h3>${spark()}</div><div class="card"><h3>Event list (${rows.length} of ${act.length})</h3><div class="mu" style="margin-bottom:6px">Columns follow Netcool conventions: numeric severity (5 critical to 2 warning), Tally for the deduplication count, Node, Summary. Views work like saved event-list filters.</div><div style="margin-bottom:8px">${vb}</div><div class="tbl"><table><tr><th>Sev</th><th>Node</th><th>Summary</th><th>Tally</th><th>Last seen</th><th>Incident</th></tr>${rows.slice(0,40).map(a=>`<tr><td>${sv(a.sev)} ${SEVN[a.sev]}</td><td>${a.src}<div class="mu">${N[a.src].role}</div></td><td>${a.text}<div class="mu">${a.type} · ${SRC[a.proto]}</div></td><td>${a.n}</td><td>${now-a.last} s ago</td><td>${a.inc?'INC-'+a.inc:'-'}</td></tr>`).join('')||'<tr><td colspan="6" class="mu">No events in this view. Use a scenario button to inject faults.</td></tr>'}</table></div></div>`}
+function vInc(){if(!incs.length)return '<div class="card mu">No incidents yet. Cut the fiber to see 10+ raw alarms collapse into one incident with a root cause.</div>';
+ return incs.map(i=>{const o=open[i.id]!==false;const nn=i.al.filter(a=>!a.noise);
+ return `<div class="card"><div class="row" style="border:0;cursor:pointer" onclick="open[${i.id}]=!${o};render()">${sv(i.st=='Resolved'?'Cleared':i.sev)}<div class="m"><b>INC-${i.id}: ${R[i.root.type][2]} on ${i.root.src}</b>${i.pred>.7?' (predicted)':''}<div class="mu">${i.st} · ${i.al.length} alarms correlated · ${i.cust.toLocaleString()} customers in scope</div></div></div>`+
+ (o?`<div class="tbl"><table>
+ <tr><th>Root cause</th><td>${i.root.type} on ${i.root.src} (confidence ${(i.conf*100|0)}%). Ranked highest in the causal chain among ${nn.length} related alarms on devices within two hops.</td></tr>
+ <tr><th>Symptoms</th><td>${[...new Set(nn.filter(a=>a!=i.root).map(a=>a.type+'@'+a.src))].join(', ')||'none'}</td></tr>
+ <tr><th>Impact</th><td>${i.imp.join(', ')||'No services mapped'}</td></tr>
+ <tr><th>Gateway</th><td>${i.tkt} opened in ITSM with root cause, impact and playbook attached (the role a Netcool helpdesk gateway plays).</td></tr>
+ <tr><th>Lifecycle</th><td>${[['Detect',1],['Correlate',1],...(i.pred!==undefined?[['Predict',1]]:[]),['Remediate',i.rem&&i.rem.st!='Proposed'],['Verify',i.st=='Resolved']].map(([l,d])=>(d?'Done: ':'Waiting: ')+l).join(' | ')}</td></tr>
+ <tr><th>Enrichment</th><td>${i.root.src} (${N[i.root.src].role}): ${N[i.root.src].site}, ${N[i.root.src].v}, loopback ${N[i.root.src].ip}. History: ${N[i.root.src].past}.</td></tr>
+ <tr><th>Remediation</th><td>${i.rem?i.rem.steps.map((s,k)=>`<div class="step ${i.rem.k>k||i.rem.st=='Done'?'d':i.rem.k==k&&i.rem.st=='Running'?'r':''}">${i.rem.k>k||i.rem.st=='Done'?'Done':i.rem.k==k&&i.rem.st=='Running'?'Running':'Pending'}: ${s}</div>`).join('')+`<div style="margin-top:6px" class="mu">${i.rem.st=='Proposed'?'Proposed ('+i.rem.risk+' risk)':i.rem.st=='Running'?(i.rem.auto?'Auto-executing':'Executing after approval'):'Completed'}</div>`+(i.rem.st=='Proposed'?`<button class="p" onclick="startRem(incs.find(x=>x.id==${i.id}),false)">Approve and run</button>`:''):'Symptom only. Awaiting root cause.'}</td></tr></table></div>`:'')+`</div>`}).join('')}
+function vKpi(){const rs=incs.filter(i=>i.t1),uniq=alarms.filter(a=>!a.noise).length,ninc=incs.length;
+ const red=raw?Math.max(0,100*(1-ninc/raw)):0;const kk=(b,l)=>`<div class="card k"><b>${b}</b><span>${l}</span></div>`;
+ return `<div class="grid">${kk(raw,'raw events ingested')}${kk(alarms.length,'unique alarms after dedup')}${kk(ninc,'incidents')}${kk(red.toFixed(0)+'%','event noise reduction')}${kk(anom.length,'anomalies flagged')}</div>
+ <div class="card"><h3>Operator workload funnel</h3><div class="tbl"><table><tr><th>HPE AA layer</th><th>Items</th><th>What it represents</th></tr><tr><td>Collection: Adapters, IP Mediation</td><td>${raw}</td><td>Raw events ingested and normalized</td></tr><tr><td>Collection: Filtering and Enrichment, Persistence</td><td>${alarms.length}</td><td>Deduplicated alarms stored (Tally counts repeats, as in Netcool)</td></tr><tr><td>Management: Fault and Problem Lifecycle</td><td>${ninc}</td><td>Incidents with one root cause each</td></tr></table></div><div class="mu" style="margin-top:6px">Deduplication alone matches what an operator sees in Netcool today. The extra drop comes from topology correlation and root cause ranking.</div></div><div class="card"><h3>MTTD and MTTR: this run versus manual baseline</h3><div class="tbl"><table><tr><th></th><th>AI-assisted (measured)</th><th>Manual baseline (assumed)</th></tr>
+ <tr><td>MTTD</td><td>${incs.length?'~1 s from first alarm':'-'}</td><td>4 min</td></tr>
+ <tr><td>MTTR</td><td>${rs.length?fm(mean(rs.map(i=>i.t1-i.t0))):'run a scenario'}</td><td>45 min</td></tr></table></div><div class="mu" style="margin-top:6px">Baseline figures are illustrative placeholders. Replace with your Netcool history during the real assessment. Simulated seconds equal wall-clock seconds.</div></div>
+ <div class="card"><h3>How the AI logic works</h3><ul style="margin:0;padding-left:18px"><li>Deduplication: source plus alarm type is the key; repeats increment a counter.</li><li>Correlation: alarms within 45 s and two hops of an open incident join it.</li><li>Root cause: highest causal rank in the alarm chain, with confidence from chain depth.</li><li>Anomaly detection: EWMA baseline and z-score on event rate (flag above 3).</li><li>Prediction: logistic risk score on repeated optical alarms, which triggers proactive reroute.</li><li>Remediation: playbook per root cause. Low risk runs automatically, medium risk needs approval.</li></ul></div>`}
+function vMig(){const rows=[
+['Probes','Collection: Adapters','Re-point SNMP, syslog and stream sources to the adapters','SNMP, Syslog and stream tags; /api/events; UDP syslog'],
+['Probe rules files, MIB Manager','Collection: IP Mediation','Rebuild event parsing and normalization for IP devices','Alarm type catalog (type, severity, text, causal rank)'],
+['Suppression and lookup automations, Impact enrichment','Collection: Filtering and Enrichment','Port suppression and lookup rules','Noise suppression, service impact, device context'],
+['ObjectServer event store (alerts.status)','Collection: Persistence','Export history for model training and replay tests','In-memory store here; production needs a database'],
+['ObjectServer dedup (Tally), event lists, automations','Management: Fault and Problem Lifecycle Management','Map Tally, views and automations into the incident lifecycle','Dedup, correlation, root cause, approval-gated remediation'],
+['Gateways (helpdesk, CRM, failover)','Northbound integration','Not in the confirmed component list. Confirm with HPE','ITSM ticket id per incident'],
+['No direct equivalent','Performance Management (sized independently)','Decide if KPI and trend data should come from it','Anomaly and KPI trends, illustrative only']];
+ return `<div class="card"><h3>Netcool to HPE Telco Automated Assurance</h3><div class="mu">The HPE datasheet describes two principal components, Fault Management and Performance Management, which can be sized and configured independently. Fault Management has a Collection layer (Adapters, IP Mediation, Filtering and Enrichment, Persistence) and a Management layer (Fault and Problem Lifecycle Management). Netcool side is from IBM's 8.1.0 overview.</div></div>
+ <div class="card"><h3>Component mapping</h3><div class="tbl"><table><tr><th>Netcool</th><th>HPE AA component</th><th>Migration action</th><th>In this demo</th></tr>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}</table></div><div class="mu" style="margin-top:6px">Component names are confirmed. What each one does is inferred from its name, so verify behaviour and interfaces with HPE.</div></div>
+ <div class="card"><h3>Capability gaps to close</h3><div class="step">Netcool today: monitoring, deduplication, filtering, forwarding, rule-based automation.</div><div class="step">Add: topology-aware correlation with root cause confidence.</div><div class="step">Add: anomaly detection and fault prediction before escalation.</div><div class="step">Add: governed closed-loop remediation with verification.</div></div>
+ <div class="card"><h3>Suggested phases</h3><div class="step">1. Size Fault Management first. Performance Management can follow independently.</div><div class="step">2. Run in parallel: mirror Netcool feeds into the adapters.</div><div class="step">3. Port mediation, filtering and enrichment rules. Compare incidents with operator workflow.</div><div class="step">4. Enable approval-based remediation, then cut over by region.</div></div>`}
+function render(){const t={alarms:vAlarms,inc:vInc,kpi:vKpi,mig:vMig}[tab]();const y=scrollY;$('#main').innerHTML=t;scrollTo(0,y)}
+// ---------- Backend mode: when served by backend/server.py the UI renders server state ----------
+let API=false;
+async function api(p,b){const r=await fetch(p,{method:b===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},body:b===undefined?undefined:JSON.stringify(b)});return r.json()}
+async function pull(){try{const d=await api('api/state');const by={};d.alarms.forEach(a=>by[a.id]=a);
+ d.incs.forEach(i=>{i.al=i.al_ids.map(x=>by[x]).filter(Boolean);i.root=by[i.root_id]||i.al[0]});
+ now=d.now;raw=d.raw;m=d.m;auto=d.auto;alarms=d.alarms;incs=d.incs;hist=d.hist;anom=d.anom;risk=d.risk;ctl();render()}catch(e){}}
+function setAuto(v){auto=v;if(API)api('api/auto',{auto:v});ctl()}
+const _loc={fiberCut,cellSite,pon,cpu,optical,storm},_nm={fiberCut:'fiber-cut',cellSite:'cell-site',pon:'pon',cpu:'cpu',optical:'optical',storm:'storm'};
+Object.keys(_loc).forEach(k=>{window[k]=()=>API?api('api/scenario/'+_nm[k],{}):_loc[k]()});
+const _sr=startRem;window.startRem=(i,a)=>API?api('api/approve/'+i.id,{}):_sr(i,a);
+fetch('api/health').then(r=>r.ok?r.json():0).then(j=>{if(j&&j.ok){API=true;document.querySelector('.sub').textContent+=' Live backend connected.'}}).catch(()=>{});
+setInterval(()=>{if(API)pull()},1000);
+ctl();render();
+</script></body></html>
